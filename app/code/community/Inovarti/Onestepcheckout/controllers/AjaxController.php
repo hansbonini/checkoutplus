@@ -6,7 +6,7 @@
  * @package    Inovarti_Onestepcheckout
  * @author     Suporte <suporte@inovarti.com.br>
  */
- 
+
 class Inovarti_Onestepcheckout_AjaxController extends Mage_Checkout_Controller_Action
 {
 
@@ -630,43 +630,75 @@ class Inovarti_Onestepcheckout_AjaxController extends Mage_Checkout_Controller_A
      }
      $cep = preg_replace('/[^\d]/', '', $cep);
      $response['status'] = 'empty';
-     try {
-         $soapArgs = array(
-             'cep' => $cep,
-             'encoding' => 'UTF-8',
-             'exceptions' => 0
-         );
-         $clientSoap = new SoapClient(
-           "https://apps.correios.com.br/SigepMasterJPA/AtendeClienteService/AtendeCliente?wsdl", array(
-             'soap_version' => SOAP_1_1,
-             'encoding' => 'utf-8',
-             'trace' => true,
-             'exceptions' => true,
-             'cache_wsdl' => WSDL_CACHE_BOTH,
-             'connection_timeout' => 5
-         ));
-         $resultSoap = $clientSoap->consultaCep($soapArgs);
-         if (is_soap_fault($resultSoap)) {
-             $response['status'] = 'invalid';
-             $response['message'] = 'Soap Fault';
-         }
-         else {
-             $response['status'] = 'exists';
-             $response['data'] = array(
-                 'uf'              : $resultSoap->return->uf,
-                 'cidade'          : $resultSoap->return->cidade,
-                 'bairro'          : $resultSoap->return->bairro,
-                 'tipo_logradouro' : '',
-                 'logradouro'      : $resultSoap->return->end,
+     $soapURI = "https://apps.correios.com.br/SigepMasterJPA/AtendeClienteService/AtendeCliente?wsdl";
+     if ( class_exists("SOAPClient") ) {
+       if ( $this->ping($soapURI) ) {
+         try {
+             $soapArgs = array(
+                 'cep' => $cep,
+                 'encoding' => 'UTF-8',
+                 'exceptions' => 0
              );
+             $clientSoap = new SoapClient(
+               $soapURI, array(
+                 'soap_version' => SOAP_1_1,
+                 'encoding' => 'utf-8',
+                 'trace' => true,
+                 'exceptions' => true,
+                 'cache_wsdl' => WSDL_CACHE_BOTH,
+                 'connection_timeout' => 5
+             ));
+             $resultSoap = $clientSoap->consultaCep($soapArgs);
+             if (is_soap_fault($resultSoap)) {
+                 $response['status'] = 'invalid';
+                 $response['message'] = 'Soap Fault';
+             }
+             else {
+                 $response['status'] = 'exists';
+                 $response['data'] = array(
+                     'uf'              : $resultSoap->return->uf,
+                     'cidade'          : $resultSoap->return->cidade,
+                     'bairro'          : $resultSoap->return->bairro,
+                     'tipo_logradouro' : '',
+                     'logradouro'      : $resultSoap->return->end,
+                 );
+             }
+         } catch (SoapFault $e) {
+           $response['status'] = 'invalid';
+           $response['message'] = 'Soap Fault '.$e;
+         } catch (Exception $e) {
+           $response['status'] = 'invalid';
+           $response['message'] = 'Exception '.$e;
          }
-     } catch (SoapFault $e) {
-       $response['status'] = 'invalid';
-       $response['message'] = 'Soap Fault '.$e;
-     } catch (Exception $e) {
-       $response['status'] = 'invalid';
-       $response['message'] = 'Exception '.$e;
+       }
+       else {
+         $response['status'] = 'invalid';
+         $response['message'] = 'Webservice SOAP dos Correios bloqueado ou indisponível.';
+         Mage::log('Webservice SOAP dos Correios bloqueado ou indisponível.', null, 'onestepcheckout.log');
+       }
      }
-     $this->getResponse()->setBody(Zend_Json::encode($response));
+     else {
+       $response['status'] = 'invalid';
+       $response['message'] = 'Módulo SOAPClient desabilitado no PHP.';
+       Mage::log('Módulo SOAPClient desabilitado no PHP.', null, 'onestepcheckout.log');
+     }
+     $this->getResponse()->setBody($return);
+  }
+
+  protected function ping ($host, $timeout = 1) {
+      /* ICMP ping packet with a pre-calculated checksum */
+      $package = "\x08\x00\x7d\x4b\x00\x00\x00\x00PingHost";
+      $socket = socket_create(AF_INET, SOCK_RAW, 1);
+      socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array('sec' => $timeout, 'usec' => 0));
+      socket_connect($socket, $host, null);
+      $ts = microtime(true);
+      socket_send($socket, $package, strLen($package), 0);
+      if (socket_read($socket, 255)) {
+          $result = true;
+      } else {
+          $result = false;
+      }
+      socket_close($socket);
+      return $result;
   }
 }
